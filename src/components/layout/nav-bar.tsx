@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LogOut, Shield, SunMedium, Moon, Bell, Home, Compass, User, Menu } from "lucide-react";
+import { LogOut, Shield, SunMedium, Moon, Bell, Home, Compass, User, Menu, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,6 +22,7 @@ export function NavBar({ onAdminClick }: { onAdminClick?: () => void }) {
   const navLinks = [
     { href: "/", label: "Home", icon: Home },
     { href: "/explore", label: "Explore", icon: Compass },
+    { href: "/gossips", label: "Gossips", icon: Megaphone },
     { href: "/alerts", label: "Alerts", icon: Bell },
     { href: "/profile", label: "Profile", icon: User },
   ];

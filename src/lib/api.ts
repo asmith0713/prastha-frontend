@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { Thread, ThreadAlert, ThreadInsights, User } from "@/types";
+import type { Thread, ThreadAlert, ThreadInsights, User, Gossip } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const TOKEN_KEY = "prastha:token";
@@ -109,6 +109,53 @@ export const threadsAPI = {
 export const adminAPI = {
   async dashboard(userId: string) {
     const { data } = await api.get(`/api/admin/dashboard/${userId}`);
+    return data;
+  },
+};
+
+export const gossipsAPI = {
+  async list(sortBy: string = "newest"): Promise<Gossip[]> {
+    const { data } = await api.get("/api/gossips", { params: { sortBy } });
+    const payload = unwrap<{ gossips: Gossip[] }>(data);
+    return payload.gossips ?? [];
+  },
+  async create(payload: { content: string; authorId: string; authorUsername: string }): Promise<Gossip> {
+    const { data } = await api.post("/api/gossips", payload);
+    const payloadData = unwrap<{ gossip: Gossip }>(data);
+    return payloadData.gossip;
+  },
+  async vote(gossipId: string, payload: { userId: string; voteType: "up" | "down" | "none" }) {
+    const { data } = await api.post(`/api/gossips/${gossipId}/vote`, payload);
+    return data;
+  },
+  async addComment(
+    gossipId: string,
+    payload: { content: string; authorId: string; authorUsername: string; parentCommentId?: string; replyTo?: string }
+  ) {
+    const { data } = await api.post(`/api/gossips/${gossipId}/comments`, payload);
+    return data;
+  },
+  async delete(gossipId: string, userId: string) {
+    const { data } = await api.delete(`/api/gossips/${gossipId}`, { data: { userId } });
+    return data;
+  },
+  async deleteComment(gossipId: string, commentId: string, userId: string) {
+    const { data } = await api.delete(`/api/gossips/${gossipId}/comments/${commentId}`, { data: { userId } });
+    return data;
+  },
+  async reportComment(
+    gossipId: string,
+    commentId: string,
+    payload: {
+      reporterUsername: string;
+      reporterId: string;
+      commentAuthor: string;
+      commentAuthorId: string;
+      commentContent: string;
+      reason?: string;
+    }
+  ) {
+    const { data } = await api.post(`/api/gossips/${gossipId}/comments/${commentId}/report`, payload);
     return data;
   },
 };

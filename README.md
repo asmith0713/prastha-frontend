@@ -1,6 +1,6 @@
 # Prastha Frontend
 
-Prastha is a lightweight thread hub for pop-up community coordination. Users can spin up a thread, invite others, exchange short messages, and send alert cards when plans change. Nothing beyond that—no gamification or feeds we haven’t built yet. The UI you see is exactly what ships: thread creation, membership requests, chat, minimal analytics, and admin-only delete controls.
+Prastha is a lightweight thread hub for pop-up community coordination. Users can spin up a thread, invite others, exchange short messages, trade gossips, and send alert cards when plans change. Nothing beyond that—no gamification or feeds we haven’t built yet. The UI you see is exactly what ships: thread creation, membership requests, chat, gossip board, minimal analytics, and admin-only delete controls.
 
 This frontend is a collaborative effort by **asmith0713** and **Niteesh206**, forked from [Niteesh206/event-thread-frontend](https://github.com/Niteesh206/event-thread-frontend).
 
@@ -13,6 +13,7 @@ This frontend is a collaborative effort by **asmith0713** and **Niteesh206**, fo
 - Live-ish thread chat (polling + socket refresh) with send-only support in the home surface
 - Alerts list that links back to the originating thread
 - Explore + Profile pages that just wrap the same thread data, no extra logic
+- Gossip board with up/down votes, inline replies, and comment reporting
 - Creator/admin-only delete button that nukes the thread after confirmation
 - Responsive layout + dark mode token tweaks to keep cards readable
 

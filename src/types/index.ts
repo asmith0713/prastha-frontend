@@ -61,3 +61,32 @@ export type SortOption = {
   description: string;
   emoji: string;
 };
+
+export type GossipComment = {
+  id: string;
+  content: string;
+  author: string;
+  authorId: string;
+  isAnonymous: boolean;
+  parentCommentId: string | null;
+  replyTo: string | null;
+  createdAt: string;
+};
+
+export type Gossip = {
+  id: string;
+  content: string;
+  author: string;
+  authorId: string;
+  isAnonymous: boolean;
+  upvotes: number;
+  downvotes: number;
+  upvotedBy: string[];
+  downvotedBy: string[];
+  lastActivity?: string;
+  expiresAt?: string;
+  comments: GossipComment[];
+  createdAt: string;
+};
+
+export type GossipSort = "newest" | "popular" | "controversial";
