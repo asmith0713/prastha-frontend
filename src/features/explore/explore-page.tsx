@@ -207,7 +207,8 @@ export function ExplorePage() {
               currentUserId={user.id}
               isAdmin={user.isAdmin}
               messages={activeThread.chat ?? []}
-              onSend={async () => {
+              onSend={async (_payload) => {
+                void _payload;
                 toast.message("Chat is read-only from explore. Use the home hub to reply.");
               }}
               onDelete={async () => {

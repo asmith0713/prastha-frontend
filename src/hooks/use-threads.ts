@@ -38,8 +38,20 @@ export function useThreads() {
   });
 
   const messageMutation = useMutation({
-    mutationFn: ({ threadId, message }: { threadId: string; message: { user: string; userId: string; message: string } }) =>
-      threadsAPI.sendMessage(threadId, message),
+    mutationFn: ({
+      threadId,
+      message,
+    }: {
+      threadId: string;
+      message: {
+        user: string;
+        userId: string;
+        message: string;
+        replyToMessageId?: string | null;
+        replyToUser?: string | null;
+        replyPreview?: string | null;
+      };
+    }) => threadsAPI.sendMessage(threadId, message),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: THREADS_CACHE_KEY }),
   });
 

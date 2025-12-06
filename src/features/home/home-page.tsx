@@ -85,7 +85,17 @@ export function HomePage() {
     }
   };
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async ({
+    message,
+    replyToMessageId,
+    replyToUser,
+    replyPreview,
+  }: {
+    message: string;
+    replyToMessageId?: string | null;
+    replyToUser?: string | null;
+    replyPreview?: string | null;
+  }) => {
     if (!user || !activeThread) return;
     try {
       await sendMessage({
@@ -94,6 +104,9 @@ export function HomePage() {
           user: user.username,
           userId: user.id,
           message,
+          replyToMessageId,
+          replyToUser,
+          replyPreview,
         },
       });
     } catch (error) {

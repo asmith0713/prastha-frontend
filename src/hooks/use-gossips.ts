@@ -32,6 +32,13 @@ type DeleteCommentInput = {
   userId: string;
 };
 
+type CommentVoteInput = {
+  gossipId: string;
+  commentId: string;
+  userId: string;
+  voteType: "up" | "down" | "none";
+};
+
 type ReportCommentInput = {
   gossipId: string;
   commentId: string;
@@ -45,46 +52,123 @@ type ReportCommentInput = {
 
 export function useGossips(sortBy: GossipSort = "newest") {
   const queryClient = useQueryClient();
+  const queryKey = [...GOSSIPS_CACHE_KEY, sortBy] as const;
 
   const gossipsQuery = useQuery<Gossip[]>({
-    queryKey: [...GOSSIPS_CACHE_KEY, sortBy],
+    queryKey,
     queryFn: () => gossipsAPI.list(sortBy),
     staleTime: 30_000,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: GOSSIPS_CACHE_KEY });
 
+  const updateGossip = (gossipId: string, updater: (gossip: Gossip) => Gossip) => {
+    queryClient.setQueryData<Gossip[]>(queryKey, (current) => {
+      if (!current) return current;
+      return current.map((gossip) => (gossip.id === gossipId ? updater(gossip) : gossip));
+    });
+  };
+
+  const updateComment = (
+    gossipId: string,
+    commentId: string,
+    updater: (comment: Gossip["comments"][number]) => Gossip["comments"][number]
+  ) => {
+    updateGossip(gossipId, (gossip) => ({
+      ...gossip,
+      comments: gossip.comments.map((comment) => (comment.id === commentId ? updater(comment) : comment)),
+    }));
+  };
+
+  const removeGossip = (gossipId: string) => {
+    queryClient.setQueryData<Gossip[]>(queryKey, (current) => current?.filter((gossip) => gossip.id !== gossipId));
+  };
+
   const createGossipMutation = useMutation({
     mutationFn: gossipsAPI.create,
-    onSuccess: invalidate,
+    onSuccess: (newGossip) => {
+      queryClient.setQueryData<Gossip[]>(queryKey, (current = []) =>
+        sortBy === "newest" ? [newGossip, ...current] : [...current, newGossip]
+      );
+      invalidate();
+    },
   });
 
   const voteMutation = useMutation({
     mutationFn: ({ gossipId, userId, voteType }: VoteInput) =>
       gossipsAPI.vote(gossipId, { userId, voteType }),
-    onSuccess: invalidate,
+    onSuccess: (result, { gossipId, userId, voteType }) => {
+      updateGossip(gossipId, (gossip) => {
+        let upvotedBy = gossip.upvotedBy.filter((id) => id !== userId);
+        let downvotedBy = gossip.downvotedBy.filter((id) => id !== userId);
+
+        if (voteType === "up") {
+          upvotedBy = [...upvotedBy, userId];
+        } else if (voteType === "down") {
+          downvotedBy = [...downvotedBy, userId];
+        }
+
+        return {
+          ...gossip,
+          upvotes: result?.upvotes ?? upvotedBy.length,
+          downvotes: result?.downvotes ?? downvotedBy.length,
+          upvotedBy,
+          downvotedBy,
+        };
+      });
+    },
   });
 
   const commentMutation = useMutation({
     mutationFn: ({ gossipId, ...rest }: CommentInput) =>
       gossipsAPI.addComment(gossipId, rest),
-    onSuccess: invalidate,
+    onSuccess: (comment, { gossipId }) => {
+      updateGossip(gossipId, (gossip) => ({
+        ...gossip,
+        comments: [...gossip.comments, comment],
+        lastActivity: comment.createdAt ?? gossip.lastActivity,
+      }));
+      invalidate();
+    },
   });
 
   const deleteGossipMutation = useMutation({
     mutationFn: ({ gossipId, userId }: DeleteInput) => gossipsAPI.delete(gossipId, userId),
-    onSuccess: invalidate,
+    onSuccess: (_data, { gossipId }) => {
+      removeGossip(gossipId);
+      invalidate();
+    },
   });
 
   const deleteCommentMutation = useMutation({
     mutationFn: ({ gossipId, commentId, userId }: DeleteCommentInput) =>
       gossipsAPI.deleteComment(gossipId, commentId, userId),
-    onSuccess: invalidate,
+    onSuccess: (_data, { gossipId, commentId }) => {
+      updateGossip(gossipId, (gossip) => ({
+        ...gossip,
+        comments: gossip.comments.filter((comment) => comment.id !== commentId),
+      }));
+      invalidate();
+    },
   });
 
   const reportCommentMutation = useMutation({
     mutationFn: ({ gossipId, commentId, ...rest }: ReportCommentInput) =>
       gossipsAPI.reportComment(gossipId, commentId, rest),
+  });
+
+  const commentVoteMutation = useMutation({
+    mutationFn: ({ gossipId, commentId, userId, voteType }: CommentVoteInput) =>
+      gossipsAPI.voteOnComment(gossipId, commentId, { userId, voteType }),
+    onSuccess: (result, { gossipId, commentId }) => {
+      updateComment(gossipId, commentId, (comment) => ({
+        ...comment,
+        upvotes: result?.upvotes ?? comment.upvotes,
+        downvotes: result?.downvotes ?? comment.downvotes,
+        upvotedBy: result?.upvotedBy ?? comment.upvotedBy,
+        downvotedBy: result?.downvotedBy ?? comment.downvotedBy,
+      }));
+    },
   });
 
   return {
@@ -96,5 +180,6 @@ export function useGossips(sortBy: GossipSort = "newest") {
     deleteComment: deleteCommentMutation.mutateAsync,
     reportComment: reportCommentMutation.mutateAsync,
     isReportingComment: reportCommentMutation.isPending,
+    voteOnComment: commentVoteMutation.mutateAsync,
   };
 }

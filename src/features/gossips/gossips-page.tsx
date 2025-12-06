@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowBigUp, ArrowBigDown, Flag, MessageCircleMore, Trash2, Send, Loader2, Clock } from "lucide-react";
+import { ArrowBigUp, ArrowBigDown, Flag, MessageCircleMore, Trash2, Send, Loader2, Clock, CornerUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useGossips } from "@/hooks/use-gossips";
@@ -21,16 +21,82 @@ const SORT_OPTIONS: { label: string; value: GossipSort; description: string }[] 
   { label: "Controversial", value: "controversial", description: "Downvote magnets" },
 ];
 
+type CommentContext = {
+  parentCommentId?: string;
+  replyTo?: string;
+};
+
+type GossipCommentNode = GossipComment & {
+  children: GossipCommentNode[];
+};
+
+const commentDraftKey = (gossipId: string, parentCommentId?: string | null) => `${gossipId}:${parentCommentId ?? "root"}`;
+
+const buildCommentTree = (comments: GossipComment[]): GossipCommentNode[] => {
+  const nodes = new Map<string, GossipCommentNode>();
+  const roots: GossipCommentNode[] = [];
+
+  comments.forEach((comment) => {
+    nodes.set(comment.id, { ...comment, children: [] });
+  });
+
+  const attachChildren = (list: GossipCommentNode[]) => {
+    list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    list.forEach((node) => {
+      if (node.children.length > 0) {
+        attachChildren(node.children);
+      }
+    });
+  };
+
+  nodes.forEach((node) => {
+    if (node.parentCommentId && nodes.has(node.parentCommentId)) {
+      nodes.get(node.parentCommentId)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  attachChildren(roots);
+  return roots;
+};
+
 export function GossipsPage() {
   const { user } = useAuth();
   const [sortBy, setSortBy] = React.useState<GossipSort>("newest");
   const [draft, setDraft] = React.useState("");
   const [commentDrafts, setCommentDrafts] = React.useState<Record<string, string>>({});
+  const [replyTargets, setReplyTargets] = React.useState<Record<string, string | null>>({});
+
+  const getCommentDraft = (gossipId: string, parentCommentId?: string | null) =>
+    commentDrafts[commentDraftKey(gossipId, parentCommentId)] ?? "";
+
+  const setCommentDraft = (gossipId: string, parentCommentId: string | null, value: string) => {
+    setCommentDrafts((prev) => ({ ...prev, [commentDraftKey(gossipId, parentCommentId)]: value }));
+  };
+
+  const clearCommentDraft = (gossipId: string, parentCommentId?: string | null) => {
+    setCommentDrafts((prev) => {
+      const key = commentDraftKey(gossipId, parentCommentId);
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const handleReplySelect = (gossipId: string, commentId: string | null) => {
+    setReplyTargets((prev) => ({
+      ...prev,
+      [gossipId]: prev[gossipId] === commentId ? null : commentId,
+    }));
+  };
 
   const {
     gossipsQuery,
     createGossip,
     voteOnGossip,
+    voteOnComment,
     addComment,
     deleteGossip,
     deleteComment,
@@ -81,9 +147,19 @@ export function GossipsPage() {
     }
   };
 
-  const handleComment = async (gossipId: string) => {
+  const handleCommentVote = async (gossipId: string, commentId: string, voteType: "up" | "down" | "none") => {
     if (!ensureAuthed()) return;
-    const content = commentDrafts[gossipId]?.trim();
+    try {
+      await voteOnComment({ gossipId, commentId, userId: user!.id, voteType });
+    } catch (error) {
+      console.error(error);
+      toast.error("Vote failed", { description: "Please try again." });
+    }
+  };
+
+  const handleComment = async (gossipId: string, context?: CommentContext) => {
+    if (!ensureAuthed()) return;
+    const content = getCommentDraft(gossipId, context?.parentCommentId ?? null).trim();
     if (!content) {
       toast.error("Empty reply", { description: "Say something before sending." });
       return;
@@ -95,8 +171,13 @@ export function GossipsPage() {
         content,
         authorId: user!.id,
         authorUsername: user!.username,
+        parentCommentId: context?.parentCommentId,
+        replyTo: context?.replyTo,
       });
-      setCommentDrafts((prev) => ({ ...prev, [gossipId]: "" }));
+      clearCommentDraft(gossipId, context?.parentCommentId ?? null);
+      if (context?.parentCommentId) {
+        setReplyTargets((prev) => ({ ...prev, [gossipId]: null }));
+      }
     } catch (error) {
       console.error(error);
       toast.error("Comment failed", { description: "Please try again." });
@@ -199,9 +280,18 @@ export function GossipsPage() {
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Example: Pop-up LAN shifted to Hall B at 6pm."
               className="min-h-[120px] rounded-2xl bg-slate-50/60 dark:bg-slate-800/60"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void handleCreate();
+                }
+              }}
             />
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-xs text-slate-500">Maximum 500 characters. Keep it factual.</p>
+            <div className="flex flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="space-y-0.5">
+                <p>Maximum 500 characters. Keep it factual.</p>
+                <p className="text-[11px] text-slate-400">Press Enter to post • Shift+Enter for a new line</p>
+              </div>
               <Button onClick={handleCreate} disabled={!draft.trim()} className="rounded-2xl">
                 <Send className="mr-2 h-4 w-4" />
                 Post gossip
@@ -238,9 +328,12 @@ export function GossipsPage() {
               isAdmin={Boolean(user?.isAdmin)}
               isReporting={isReportingComment}
               vote={(voteType) => handleVote(gossip.id, voteType)}
-              onComment={() => handleComment(gossip.id)}
-              commentValue={commentDrafts[gossip.id] ?? ""}
-              onCommentChange={(value) => setCommentDrafts((prev) => ({ ...prev, [gossip.id]: value }))}
+              onComment={(context?: CommentContext) => handleComment(gossip.id, context)}
+              getCommentValue={(parentCommentId?: string | null) => getCommentDraft(gossip.id, parentCommentId ?? null)}
+              onCommentChange={(value: string, parentCommentId?: string | null) => setCommentDraft(gossip.id, parentCommentId ?? null, value)}
+              replyTargetId={replyTargets[gossip.id] ?? null}
+              onReplyTargetChange={(commentId: string | null) => handleReplySelect(gossip.id, commentId)}
+              onCommentVote={(commentId, voteType) => void handleCommentVote(gossip.id, commentId, voteType)}
               deleteGossip={() => handleDeleteGossip(gossip)}
               deleteComment={(comment) => handleDeleteComment(gossip.id, comment)}
               reportComment={(comment) => handleReportComment(gossip.id, comment)}
@@ -259,8 +352,11 @@ function GossipCard({
   isAdmin,
   vote,
   onComment,
-  commentValue,
+  getCommentValue,
   onCommentChange,
+  replyTargetId,
+  onReplyTargetChange,
+  onCommentVote,
   deleteGossip,
   deleteComment,
   reportComment,
@@ -271,9 +367,12 @@ function GossipCard({
   currentUserId?: string;
   isAdmin?: boolean;
   vote: (voteType: "up" | "down" | "none") => void;
-  onComment: () => void;
-  commentValue: string;
-  onCommentChange: (value: string) => void;
+  onComment: (context?: CommentContext) => Promise<void> | void;
+  getCommentValue: (parentCommentId?: string | null) => string;
+  onCommentChange: (value: string, parentCommentId?: string | null) => void;
+  replyTargetId?: string | null;
+  onReplyTargetChange: (commentId: string | null) => void;
+  onCommentVote: (commentId: string, voteType: "up" | "down" | "none") => void;
   deleteGossip: () => void;
   deleteComment: (comment: GossipComment) => void;
   reportComment: (comment: GossipComment) => void;
@@ -285,6 +384,9 @@ function GossipCard({
 
   const voteCount = gossip.upvotes - gossip.downvotes;
   const createdLabel = new Date(gossip.createdAt).toLocaleString();
+  const commentTree = React.useMemo(() => buildCommentTree(gossip.comments), [gossip.comments]);
+  const activeReplyId = replyTargetId ?? null;
+  const rootCommentValue = getCommentValue();
 
   return (
     <Card className="rounded-3xl border-slate-200/60 dark:border-slate-800/60 bg-white/95 dark:bg-slate-900/80 shadow-soft">
@@ -341,19 +443,26 @@ function GossipCard({
         <Separator className="bg-slate-200/80 dark:bg-slate-800/80" />
 
         <div className="space-y-3">
-          {gossip.comments.length === 0 ? (
+          {commentTree.length === 0 ? (
             <p className="text-sm text-slate-500">No replies yet.</p>
           ) : (
             <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-              {gossip.comments.map((comment) => (
-                <CommentRow
+              {commentTree.map((comment) => (
+                <CommentThread
                   key={comment.id}
                   comment={comment}
-                  canModerate={comment.authorId === currentUserId || Boolean(isAdmin)}
-                  onDelete={() => deleteComment(comment)}
-                  onReport={() => reportComment(comment)}
-                  disableReport={comment.authorId === currentUserId || !currentUserId}
+                  currentUserId={currentUserId}
+                  isAdmin={isAdmin}
+                  deleteComment={deleteComment}
+                  reportComment={reportComment}
+                  disabled={disabled}
                   isReporting={isReporting}
+                  replyTargetId={activeReplyId}
+                  onReplyTargetChange={onReplyTargetChange}
+                  getCommentValue={getCommentValue}
+                  onCommentChange={onCommentChange}
+                  onCommentSubmit={onComment}
+                  voteOnComment={onCommentVote}
                 />
               ))}
             </div>
@@ -361,14 +470,21 @@ function GossipCard({
 
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 p-3 space-y-2">
             <Textarea
-              value={commentValue}
+              value={rootCommentValue}
               onChange={(event) => onCommentChange(event.target.value)}
               placeholder={disabled ? "Sign in to reply" : "Add a reply"}
               className="min-h-[80px] rounded-2xl bg-transparent"
               disabled={disabled}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !disabled && rootCommentValue.trim()) {
+                  event.preventDefault();
+                  void onComment();
+                }
+              }}
             />
-            <div className="flex justify-end">
-              <Button onClick={onComment} disabled={disabled || !commentValue.trim()} size="sm" className="rounded-xl">
+            <div className="flex flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-slate-400">Press Enter to reply • Shift+Enter for a new line</p>
+              <Button onClick={() => void onComment()} disabled={disabled || !rootCommentValue.trim()} size="sm" className="rounded-xl self-end sm:self-auto">
                 Reply
               </Button>
             </div>
@@ -379,44 +495,182 @@ function GossipCard({
   );
 }
 
-function CommentRow({
-  comment,
-  canModerate,
-  onDelete,
-  onReport,
-  disableReport,
-  isReporting,
-}: {
-  comment: GossipComment;
-  canModerate: boolean;
-  onDelete: () => void;
-  onReport: () => void;
-  disableReport: boolean;
+type CommentThreadProps = {
+  comment: GossipCommentNode;
+  currentUserId?: string;
+  isAdmin?: boolean;
+  deleteComment: (comment: GossipComment) => void;
+  reportComment: (comment: GossipComment) => void;
+  disabled: boolean;
   isReporting: boolean;
-}) {
+  replyTargetId?: string | null;
+  onReplyTargetChange: (commentId: string | null) => void;
+  getCommentValue: (parentCommentId?: string | null) => string;
+  onCommentChange: (value: string, parentCommentId?: string | null) => void;
+  onCommentSubmit: (context: CommentContext) => Promise<void> | void;
+  voteOnComment: (commentId: string, voteType: "up" | "down" | "none") => void;
+  depth?: number;
+};
+
+function CommentThread({
+  comment,
+  currentUserId,
+  isAdmin,
+  deleteComment,
+  reportComment,
+  disabled,
+  isReporting,
+  replyTargetId,
+  onReplyTargetChange,
+  getCommentValue,
+  onCommentChange,
+  onCommentSubmit,
+  voteOnComment,
+  depth = 0,
+}: CommentThreadProps) {
   const timestamp = new Date(comment.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const canModerate = comment.authorId === currentUserId || Boolean(isAdmin);
+  const disableReport = comment.authorId === currentUserId || !currentUserId;
+  const isReplying = replyTargetId === comment.id;
+  const replyValue = getCommentValue(comment.id);
+  const replyInputRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const upvoteCount = comment.upvotes ?? 0;
+  const downvoteCount = comment.downvotes ?? 0;
+  const upvoters = comment.upvotedBy ?? [];
+  const downvoters = comment.downvotedBy ?? [];
+  const hasUpvoted = currentUserId ? upvoters.includes(currentUserId) : false;
+  const hasDownvoted = currentUserId ? downvoters.includes(currentUserId) : false;
+  const commentScore = upvoteCount - downvoteCount;
+
+  React.useEffect(() => {
+    if (isReplying && !disabled) {
+      const input = replyInputRef.current;
+      if (input) {
+        input.focus();
+        const caret = input.value.length;
+        input.setSelectionRange(caret, caret);
+      }
+    }
+  }, [isReplying, disabled]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{comment.author}</p>
-          <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">{timestamp}</p>
+    <div className={cn("space-y-3", depth > 0 && "pl-4 sm:pl-6 border-l border-slate-200/60 dark:border-slate-800/60")}
+    >
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{comment.author}</p>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">{timestamp}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("rounded-xl", hasUpvoted && "text-green-600")}
+                onClick={() => voteOnComment(comment.id, hasUpvoted ? "none" : "up")}
+                disabled={disabled}
+                title="Upvote comment"
+              >
+                <ArrowBigUp className="h-3.5 w-3.5" />
+              </Button>
+              <span className="px-2 text-xs font-semibold text-slate-600 dark:text-slate-200 min-w-[32px] text-center">{commentScore}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("rounded-xl", hasDownvoted && "text-red-500")}
+                onClick={() => voteOnComment(comment.id, hasDownvoted ? "none" : "down")}
+                disabled={disabled}
+                title="Downvote comment"
+              >
+                <ArrowBigDown className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => onReplyTargetChange(comment.id)}
+                disabled={disabled}
+                title="Reply to comment"
+              >
+                <CornerUpRight className="h-3.5 w-3.5" />
+              </Button>
+              {!disableReport && (
+                <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => reportComment(comment)} disabled={isReporting} title="Report comment">
+                  {isReporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
+                </Button>
+              )}
+              {canModerate && (
+                <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => deleteComment(comment)} title="Delete comment">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          {!disableReport && (
-            <Button variant="ghost" size="icon" className="rounded-xl" onClick={onReport} disabled={isReporting} title="Report comment">
-              {isReporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
-            </Button>
-          )}
-          {canModerate && (
-            <Button variant="ghost" size="icon" className="rounded-xl" onClick={onDelete} title="Delete comment">
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
+        {comment.replyTo && (
+          <p className="mt-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">Replying to {comment.replyTo}</p>
+        )}
+        <p className="mt-2 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{comment.content}</p>
       </div>
-      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{comment.content}</p>
+
+      {isReplying && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-3 space-y-2">
+          <Textarea
+            value={replyValue}
+            onChange={(event) => onCommentChange(event.target.value, comment.id)}
+            placeholder="Reply to this comment"
+            className="min-h-[70px] rounded-2xl bg-transparent"
+            ref={replyInputRef}
+            disabled={disabled}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && replyValue.trim()) {
+                event.preventDefault();
+                void onCommentSubmit({ parentCommentId: comment.id, replyTo: comment.author });
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2 text-xs text-slate-500">
+            <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => onReplyTargetChange(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-xl"
+              onClick={() => void onCommentSubmit({ parentCommentId: comment.id, replyTo: comment.author })}
+              disabled={!replyValue.trim()}
+            >
+              Reply
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {comment.children.length > 0 && (
+        <div className="space-y-3">
+          {comment.children.map((child) => (
+            <CommentThread
+              key={child.id}
+              comment={child}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              deleteComment={deleteComment}
+              reportComment={reportComment}
+              disabled={disabled}
+              isReporting={isReporting}
+              replyTargetId={replyTargetId}
+              onReplyTargetChange={onReplyTargetChange}
+              getCommentValue={getCommentValue}
+              onCommentChange={onCommentChange}
+              onCommentSubmit={onCommentSubmit}
+              voteOnComment={voteOnComment}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

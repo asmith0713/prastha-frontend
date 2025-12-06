@@ -80,7 +80,8 @@ export function AlertsPage() {
               currentUserId={user.id}
               isAdmin={user.isAdmin}
               messages={activeThread.chat ?? []}
-              onSend={async () => {
+              onSend={async (_payload) => {
+                void _payload;
                 toast.message("Open the home hub to post replies.");
               }}
               onDelete={async () => {

@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { Thread, ThreadAlert, ThreadInsights, User, Gossip } from "@/types";
+import type { Thread, ThreadAlert, ThreadInsights, User, Gossip, GossipComment } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const TOKEN_KEY = "prastha:token";
@@ -100,7 +100,17 @@ export const threadsAPI = {
     });
     return data;
   },
-  async sendMessage(threadId: string, messageData: { user: string; userId: string; message: string }) {
+  async sendMessage(
+    threadId: string,
+    messageData: {
+      user: string;
+      userId: string;
+      message: string;
+      replyToMessageId?: string | null;
+      replyToUser?: string | null;
+      replyPreview?: string | null;
+    }
+  ) {
     const { data } = await api.post(`/api/threads/${threadId}/messages`, messageData);
     return data;
   },
@@ -131,9 +141,10 @@ export const gossipsAPI = {
   async addComment(
     gossipId: string,
     payload: { content: string; authorId: string; authorUsername: string; parentCommentId?: string; replyTo?: string }
-  ) {
+  ): Promise<GossipComment> {
     const { data } = await api.post(`/api/gossips/${gossipId}/comments`, payload);
-    return data;
+    const payloadData = unwrap<{ comment: GossipComment }>(data);
+    return payloadData.comment;
   },
   async delete(gossipId: string, userId: string) {
     const { data } = await api.delete(`/api/gossips/${gossipId}`, { data: { userId } });
@@ -141,6 +152,14 @@ export const gossipsAPI = {
   },
   async deleteComment(gossipId: string, commentId: string, userId: string) {
     const { data } = await api.delete(`/api/gossips/${gossipId}/comments/${commentId}`, { data: { userId } });
+    return data;
+  },
+  async voteOnComment(
+    gossipId: string,
+    commentId: string,
+    payload: { userId: string; voteType: "up" | "down" | "none" }
+  ) {
+    const { data } = await api.post(`/api/gossips/${gossipId}/comments/${commentId}/vote`, payload);
     return data;
   },
   async reportComment(

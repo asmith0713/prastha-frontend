@@ -161,7 +161,8 @@ export function ProfilePage() {
               currentUserId={user.id}
               isAdmin={user.isAdmin}
               messages={activeThread.chat ?? []}
-              onSend={async () => {
+              onSend={async (_payload) => {
+                void _payload;
                 toast.message("Open the home hub to continue chatting.");
               }}
               onDelete={handleDeleteThread}

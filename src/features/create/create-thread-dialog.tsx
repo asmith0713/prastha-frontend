@@ -21,7 +21,12 @@ const Label: React.FC<React.LabelHTMLAttributes<HTMLLabelElement>> = ({ children
 
 const schema = z.object({
   title: z.string().min(3, "Give your thread a name"),
-  description: z.string().min(20, "Add a short description"),
+  description: z
+    .string()
+    .transform((value) => value.trim())
+    .refine((value) => value.length === 0 || value.length >= 20, {
+      message: "Share at least 20 characters or leave it blank",
+    }),
   location: z.string().min(2, "Where is this happening?"),
   category: z.string().min(1, "Select a category"),
   tags: z.string().optional(),
@@ -130,6 +135,9 @@ export function CreateThreadDialog({ open, defaultCategory, isSubmitting, onOpen
               {...form.register("description")}
               className="rounded-2xl bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"
             />
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Optional, but helpful context boosts engagement.
+            </p>
             {form.formState.errors.description && <p className="text-sm text-red-500 dark:text-red-400">{form.formState.errors.description.message}</p>}
           </div>
 

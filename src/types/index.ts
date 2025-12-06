@@ -10,6 +10,9 @@ export type ThreadMessage = {
   userId: string;
   message: string;
   timestamp: string;
+  replyToMessageId?: string | null;
+  replyToUser?: string | null;
+  replyPreview?: string | null;
 };
 
 export type Thread = {
@@ -70,6 +73,10 @@ export type GossipComment = {
   isAnonymous: boolean;
   parentCommentId: string | null;
   replyTo: string | null;
+  upvotes: number;
+  downvotes: number;
+  upvotedBy: string[];
+  downvotedBy: string[];
   createdAt: string;
 };
 
